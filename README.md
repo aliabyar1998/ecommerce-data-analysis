@@ -51,6 +51,35 @@ Association rule mining was applied to identify products frequently purchased to
 ## 🎯 Conclusion
 This project demonstrates end-to-end data analysis skills including data preprocessing, visualization, customer segmentation, and association rule mining.
 
+## 📸 Project Visualizations
+
+### Monthly Revenue Trend
+
+![Monthly Revenue](images/monthly_revenue.png)
+
+---
+
+### Top Countries by Revenue
+
+![Top Countries](images/top_countries.png)
+
+---
+
+### Top Products by Revenue
+
+![Top Products](images/top_products.png)
+
+---
+
+### Customer Segmentation (RFM)
+
+![RFM Segments](images/rfm_segments.png)
+
+---
+
+### Market Basket Analysis
+
+![Association Rules](images/association_rules.png)
 ---
 
 ## 👤 Author
