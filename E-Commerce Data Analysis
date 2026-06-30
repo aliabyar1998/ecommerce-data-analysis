@@ -1,0 +1,404 @@
+#!/usr/bin/env python
+# coding: utf-8
+
+# In[1]:
+
+
+import pandas as pd
+get_ipython().system('pip install kagglehub')
+get_ipython().system('pip install kagglehub[pandas-datasets]')
+
+
+# In[2]:
+
+
+import kagglehub
+import pandas as pd
+import os
+path = kagglehub.dataset_download("carrie1/ecommerce-data")
+print("Files:", os.listdir(path))
+df = pd.read_csv(os.path.join(path, "data.csv"), encoding="latin1")
+print(df.head())
+
+
+# In[3]:
+
+
+df.shape
+
+
+# In[4]:
+
+
+df.columns
+
+
+# In[5]:
+
+
+df.info()
+
+
+# In[6]:
+
+
+print("Negative Quantity:", (df['Quantity'] < 0).sum())
+print("Zero/Negative UnitPrice:", (df['UnitPrice'] <= 0).sum())
+
+
+# In[7]:
+
+
+print(df[df['Quantity'] < 0].head(10))
+
+
+# In[8]:
+
+
+negative_not_cancelled = df[(df['Quantity'] < 0) & (~df['InvoiceNo'].astype(str).str.startswith('C'))]
+print("Negative quantity but NOT starting with C:", len(negative_not_cancelled))
+
+
+# In[9]:
+
+
+print(negative_not_cancelled.head(10))
+
+
+# In[10]:
+
+
+df_clean = df[df['Quantity'] > 0].copy()
+df_clean = df_clean[df_clean['UnitPrice'] > 0].copy()
+
+print("Original rows:", len(df))
+print("Clean rows:", len(df_clean))
+print("Removed rows:", len(df) - len(df_clean))
+
+
+# In[11]:
+
+
+print("CustomerID nulls:", df_clean['CustomerID'].isnull().sum())
+print("Null percentage:", round(df_clean['CustomerID'].isnull().sum() / len(df_clean) * 100, 2), "%")
+
+
+# In[12]:
+
+
+df_sales = df_clean.copy()
+df_rfm = df_clean.dropna(subset=['CustomerID']).copy()
+df_rfm['CustomerID'] = df_rfm['CustomerID'].astype(int)
+
+print("Sales rows:", len(df_sales))
+print("RFM rows:", len(df_rfm))
+
+
+# In[13]:
+
+
+df_sales['Revenue'] = df_sales['Quantity'] * df_sales['UnitPrice']
+df_rfm['Revenue'] = df_rfm['Quantity'] * df_rfm['UnitPrice']
+
+print(df_sales[['Quantity', 'UnitPrice', 'Revenue']].head())
+
+
+# In[14]:
+
+
+df_sales['InvoiceDate'] = pd.to_datetime(df_sales['InvoiceDate'])
+df_rfm['InvoiceDate'] = pd.to_datetime(df_rfm['InvoiceDate'])
+
+
+# In[15]:
+
+
+print("Total Revenue:", round(df_sales['Revenue'].sum(), 2))
+print("Total Orders:", df_sales['InvoiceNo'].nunique())
+print("Total Customers:", df_sales['CustomerID'].nunique())
+print("Date Range:", df_sales['InvoiceDate'].min(), "to", df_sales['InvoiceDate'].max())
+
+
+# In[16]:
+
+
+df_sales['Month'] = df_sales['InvoiceDate'].dt.to_period('M')
+monthly_revenue = df_sales.groupby('Month')['Revenue'].sum().reset_index()
+monthly_revenue['Month'] = monthly_revenue['Month'].astype(str)
+
+print(monthly_revenue)
+
+
+# In[17]:
+
+
+import matplotlib.pyplot as plt
+
+plt.figure(figsize=(12, 5))
+plt.plot(monthly_revenue['Month'], monthly_revenue['Revenue'], marker='o')
+plt.xticks(rotation=45)
+plt.title('Monthly Revenue')
+plt.xlabel('Month')
+plt.ylabel('Revenue')
+plt.tight_layout()
+plt.show()
+
+
+# In[18]:
+
+
+country_revenue = df_sales.groupby('Country')['Revenue'].sum().sort_values(ascending=False).head(10).reset_index()
+print(country_revenue)
+
+
+# In[19]:
+
+
+total = df_sales['Revenue'].sum()
+print("UK percentage:", round(9025222 / total * 100, 1), "%")
+
+
+# In[20]:
+
+
+import matplotlib.pyplot as plt
+
+plt.figure(figsize=(12, 5))
+plt.bar(country_revenue['Country'], country_revenue['Revenue'])
+plt.xticks(rotation=45)
+plt.title('Top 10 Countries by Revenue')
+plt.xlabel('Country')
+plt.ylabel('Revenue')
+plt.tight_layout()
+plt.show()
+
+
+# In[21]:
+
+
+country_ex_uk = country_revenue[country_revenue['Country'] != 'United Kingdom']
+
+plt.figure(figsize=(12, 5))
+plt.bar(country_ex_uk['Country'], country_ex_uk['Revenue'])
+plt.xticks(rotation=45)
+plt.title('Top 10 Countries by Revenue (Excluding UK)')
+plt.xlabel('Country')
+plt.ylabel('Revenue')
+plt.tight_layout()
+plt.show()
+
+
+# In[22]:
+
+
+product_revenue = df_sales.groupby('Description')['Revenue'].sum().sort_values(ascending=False).head(10).reset_index()
+print(product_revenue)
+
+
+# In[23]:
+
+
+fake_products = ['DOTCOM POSTAGE', 'POSTAGE', 'Manual']
+product_revenue = df_sales[~df_sales['Description'].isin(fake_products)]
+product_revenue = product_revenue.groupby('Description')['Revenue'].sum().sort_values(ascending=False).head(10).reset_index()
+print(product_revenue)
+
+
+# In[24]:
+
+
+plt.figure(figsize=(12, 5))
+plt.barh(product_revenue['Description'], product_revenue['Revenue'])
+plt.gca().invert_yaxis()
+plt.title('Top 10 Products by Revenue')
+plt.xlabel('Revenue')
+plt.tight_layout()
+plt.show()
+
+
+# In[25]:
+
+
+import datetime
+
+reference_date = df_rfm['InvoiceDate'].max() + datetime.timedelta(days=1)
+
+rfm = df_rfm.groupby('CustomerID').agg(
+    Recency=('InvoiceDate', lambda x: (reference_date - x.max()).days),
+    Frequency=('InvoiceNo', 'nunique'),
+    Monetary=('Revenue', 'sum')
+).reset_index()
+
+print(rfm.head(10))
+
+
+# In[26]:
+
+
+rfm['R_Score'] = pd.qcut(rfm['Recency'], q=5, labels=[5, 4, 3, 2, 1])
+rfm['F_Score'] = pd.qcut(rfm['Frequency'].rank(method='first'), q=5, labels=[1, 2, 3, 4, 5])
+rfm['M_Score'] = pd.qcut(rfm['Monetary'], q=5, labels=[1, 2, 3, 4, 5])
+
+rfm['RFM_Score'] = rfm['R_Score'].astype(str) + rfm['F_Score'].astype(str) + rfm['M_Score'].astype(str)
+
+print(rfm.head(10))
+
+
+# In[27]:
+
+
+def segment_customer(score):
+    r = int(score[0])
+    f = int(score[1])
+    m = int(score[2])
+    
+    if r >= 4 and f >= 4 and m >= 4:
+        return 'Champion'
+    elif r >= 3 and f >= 3:
+        return 'Loyal'
+    elif r >= 4 and f <= 2:
+        return 'New Customer'
+    elif r <= 2 and f >= 3:
+        return 'At Risk'
+    elif r <= 2 and f <= 2 and m >= 3:
+        return 'Big Spender Lost'
+    else:
+        return 'Lost'
+
+rfm['Segment'] = rfm['RFM_Score'].apply(segment_customer)
+print(rfm['Segment'].value_counts())
+
+
+# In[28]:
+
+
+segment_counts = rfm['Segment'].value_counts().reset_index()
+segment_counts.columns = ['Segment', 'Count']
+
+plt.figure(figsize=(10, 5))
+plt.bar(segment_counts['Segment'], segment_counts['Count'])
+plt.xticks(rotation=45)
+plt.title('Customer Segments')
+plt.xlabel('Segment')
+plt.ylabel('Number of Customers')
+plt.tight_layout()
+plt.show()
+
+
+# In[29]:
+
+
+segment_summary = rfm.groupby('Segment').agg(
+    Avg_Recency=('Recency', 'mean'),
+    Avg_Frequency=('Frequency', 'mean'),
+    Avg_Monetary=('Monetary', 'mean'),
+    Count=('CustomerID', 'count')
+).round(1).reset_index()
+
+print(segment_summary)
+
+
+# In[30]:
+
+
+get_ipython().system('pip install mlxtend')
+
+
+# In[31]:
+
+
+from mlxtend.frequent_patterns import apriori, association_rules
+from mlxtend.preprocessing import TransactionEncoder
+
+
+# In[32]:
+
+
+df_clean.to_csv(r"D:\Universities Proj\data\processed\df_clean.csv", index=False)
+df_sales.to_csv(r"D:\Universities Proj\data\processed\df_sales.csv", index=False)
+df_rfm.to_csv(r"D:\Universities Proj\data\processed\df_rfm.csv", index=False)
+
+print("df_clean saved:", len(df_clean), "rows")
+print("df_sales saved:", len(df_sales), "rows")
+print("df_rfm saved:", len(df_rfm), "rows")
+
+
+# In[33]:
+
+
+basket = df_sales.groupby(['InvoiceNo', 'Description'])['Quantity'].sum().unstack().fillna(0)
+basket = basket.map(lambda x: 1 if x > 0 else 0)
+
+print("Basket shape:", basket.shape)
+
+
+# In[34]:
+
+
+basket = basket.astype(bool)
+frequent_itemsets = apriori(basket, min_support=0.02, use_colnames=True)
+print("Frequent itemsets found:", len(frequent_itemsets))
+
+
+# In[35]:
+
+
+rules = association_rules(frequent_itemsets, metric="lift", min_threshold=1)
+rules = rules.sort_values('lift', ascending=False)
+print("Rules found:", len(rules))
+print(rules[['antecedents', 'consequents', 'support', 'confidence', 'lift']].head(10))
+
+
+# In[36]:
+
+
+top_rules = rules.head(10).copy()
+top_rules['rule'] = top_rules['antecedents'].astype(str) + ' -> ' + top_rules['consequents'].astype(str)
+
+plt.figure(figsize=(12, 6))
+plt.barh(top_rules['rule'], top_rules['lift'])
+plt.gca().invert_yaxis()
+plt.title('Top 10 Association Rules by Lift')
+plt.xlabel('Lift')
+plt.tight_layout()
+plt.show()
+
+
+# In[37]:
+
+
+def clean_label(itemset):
+    items = list(itemset)
+    if len(items) == 1:
+        return items[0]
+    return ' + '.join(items)
+
+top_rules = rules.head(10).copy()
+top_rules['rule'] = top_rules['antecedents'].apply(clean_label) + '\n-> ' + top_rules['consequents'].apply(clean_label)
+
+plt.figure(figsize=(12, 8))
+plt.barh(top_rules['rule'], top_rules['lift'])
+plt.gca().invert_yaxis()
+plt.title('Top 10 Association Rules by Lift')
+plt.xlabel('Lift')
+plt.tight_layout()
+plt.show()
+
+
+# In[38]:
+
+
+rfm.to_csv(r"D:\Universities Proj\data\processed\rfm.csv", index=False)
+frequent_itemsets.to_csv(r"D:\Universities Proj\data\processed\frequent_itemsets.csv", index=False)
+rules.to_csv(r"D:\Universities Proj\data\processed\rules.csv", index=False)
+
+print("rfm saved:", len(rfm), "rows")
+print("frequent_itemsets saved:", len(frequent_itemsets), "rows")
+print("rules saved:", len(rules), "rows")
+
+
+# In[ ]:
+
+
+
+
